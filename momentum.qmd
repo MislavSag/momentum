@@ -1,0 +1,361 @@
+---
+title: "Momentum"
+format: html
+editor: visual
+---
+
+
+```{r}
+# rm(list = ls())
+library(data.table)
+library(PerformanceAnalytics)
+library(ggplot2)
+library(patchwork)
+library(foreach)
+```
+
+```{r}
+#| cache: true
+
+# Import data
+dt = fread("F:/strategies/momentum/prices.csv")
+
+# Create yearmonth column
+dt[, month := data.table::yearmon(date)]
+
+# Sort
+setorder(dt, symbol, date)
+```
+
+
+```{r}
+# Upsample to monthly data
+dt_month = dt[, .(close = last(close), 
+                  beta = last(beta),
+                  liquid_1000 = last(liquid_1000),
+                  liquid_500 = last(liquid_500),
+                  liquid_200 = last(liquid_200),
+                  liquid_100 = last(liquid_100),
+                  beta_rank_largest_90 = last(beta_rank_largest_90),
+                  beta_rank_largest_95 = last(beta_rank_largest_95),
+                  beta_rank_largest_99 = last(beta_rank_largest_99),
+                  regime_spy_up_44 = last(regime_spy_up_44),
+                  regime_spy_up_66 = last(regime_spy_up_66),
+                  regime_spy_up_125 = last(regime_spy_up_125),
+                  regime_spy_up_252 = last(regime_spy_up_252),
+                  momentum_3 = last(momentum_3),
+                  momentum_6 = last(momentum_6),
+                  momentum_9 = last(momentum_9),
+                  momentum_12 = last(momentum_12),
+                  dollar_volume_zscore_winsorized3 = last(dollar_volume_zscore_winsorized3),
+                  dollar_volume_zscore_winsorized6 = last(dollar_volume_zscore_winsorized6),
+                  dollar_volume_zscore_winsorized9 = last(dollar_volume_zscore_winsorized9),
+                  dollar_volume_zscore_winsorized12 = last(dollar_volume_zscore_winsorized12),
+                  discreteness_3 = last(discreteness_3),
+                  discreteness_6 = last(discreteness_6),
+                  discreteness_9 = last(discreteness_9),
+                  discreteness_12 = last(discreteness_12)
+                  ), 
+              by = .(symbol, month)]
+
+# Calculate next month return
+dt_month[, return := shift(close, -1, typ = "shift") / close - 1, by = symbol]
+```
+
+# Bin graphs
+
+## Mean returns across bins
+
+```{r}
+# Show mean and meadian return for bins across date and momentum_12
+ret_bins = copy(dt_month)
+ret_bins[, bin := cut(momentum_12, breaks = quantile(momentum_12, probs = seq(0, 1, 0.1), na.rm = TRUE), 
+                      include.lowest = TRUE, labels = FALSE)]
+ret_bins = ret_bins[, .(mean_return = mean(return, na.rm = TRUE),
+                        median_return = median(return, na.rm = TRUE)), by = .(bin)]
+ret_bins = na.omit(ret_bins)
+ggplot(ret_bins, aes(x = bin, y = mean_return)) + 
+  geom_bar(stat = "identity")
+```
+
+### Media nreturns across bins 
+```{r}
+ggplot(ret_bins, aes(x = bin, y = median_return)) + 
+  geom_bar(stat = "identity")
+```
+
+### Mean returns across bins for 500 most liquid
+
+```{r}
+ret_bins = dt_month[liquid_500 == TRUE]
+ret_bins[, bin := cut(momentum_12, breaks = quantile(momentum_12, probs = seq(0, 1, 0.1), na.rm = TRUE), 
+                      include.lowest = TRUE, labels = FALSE)]
+ret_bins = ret_bins[, .(mean_return = mean(return, na.rm = TRUE),
+                        median_return = median(return, na.rm = TRUE)), by = .(bin)]
+ret_bins = na.omit(ret_bins)
+ggplot(ret_bins, aes(x = bin, y = mean_return)) + 
+  geom_bar(stat = "identity")
+```
+
+### Median returns across bins for 500 most liquid
+
+```{r}
+ggplot(ret_bins, aes(x = bin, y = median_return)) + 
+  geom_bar(stat = "identity")
+```
+
+### Bins over time
+
+```{r}
+ret_bins = dt_month[liquid_500 == TRUE]
+ret_bins[, bin := cut(momentum_12, breaks = quantile(momentum_12, probs = seq(0, 1, 0.1), na.rm = TRUE), 
+                      include.lowest = TRUE, labels = FALSE)]
+ret_bins = ret_bins[, .(mean_return = mean(return, na.rm = TRUE),
+                        median_return = median(return, na.rm = TRUE)), 
+                    by = .(bin, year = as.integer(month))]
+ret_bins = na.omit(ret_bins)
+ggplot(ret_bins, aes(x = bin, y = mean_return)) + 
+  geom_bar(stat = "identity") +
+  facet_wrap(~year, scales = "free_y")
+```
+
+```{r}
+ggplot(ret_bins, aes(x = bin, y = median_return)) + 
+  geom_bar(stat = "identity") +
+  facet_wrap(~year, scales = "free_y")
+```
+
+
+# Equity curves
+
+## 12 month momentum on whole unvierse
+
+Assumptions:
+- We will keep 30 companies with highest momentum
+- We will rebalance monthly
+- We will equally weight all companies in the portfolio
+
+
+```{r}
+# Keep 30 companies with highest momentum
+sample_ = copy(dt_month)
+setorder(sample_, month, -momentum_12)
+sample_ = na.omit(sample_, cols = c("momentum_12", "return"))[, first(.SD, 30), by = month]
+
+# Calculate portfolio reutrns
+sample_[, weights := 1 / length(close), by = month]
+sample_[, all(weights == first(weights))] # test if all weights are the same
+dt_portfolio = sample_[, .(portfolio_return = sum(weights * return)), by = month]
+dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)), 
+                                            portfolio_return)])
+charts.PerformanceSummary(dt_xts)
+```
+
+```{r}
+charts.PerformanceSummary(dt_xts["1998/2007"], main = "1998/2007")
+```
+```{r}
+charts.PerformanceSummary(dt_xts["2007/2018"], main = "2007/2018")
+```
+```{r}
+charts.PerformanceSummary(dt_xts["2018/"], main = "2018/")
+```
+
+## 12 month momentum on 500 most liquid companies
+
+```{r}
+# Same analysis on universe of 500 most liquid companies
+sample_ = copy(dt_month)
+setorder(sample_, month, -momentum_12)
+sample_ = na.omit(sample_, cols = c("momentum_12", "return"))
+sample_ = sample_[liquid_1000 == TRUE]
+sample_ = sample_[, first(.SD, 30), by = month]
+sample_[, weights := 1 / length(close), by = month]
+sample_[, all(weights == first(weights))] # test if all weights are the same
+dt_portfolio = sample_[, .(portfolio_return = sum(weights * return)), by = month]
+dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)),
+                                            portfolio_return)])
+charts.PerformanceSummary(dt_xts, main = "500 most liquid companies")
+```
+
+## 12 month momentum on 500 most liquid companies
+
+```{r}
+# Same analysis on universe of 500 most liquid companies
+sample_ = copy(dt_month)
+setorder(sample_, month, -momentum_12)
+sample_ = na.omit(sample_, cols = c("momentum_12", "return"))
+sample_ = sample_[liquid_500 == TRUE]
+sample_ = sample_[, first(.SD, 30), by = month]
+sample_[, weights := 1 / length(close), by = month]
+sample_[, all(weights == first(weights))] # test if all weights are the same
+dt_portfolio = sample_[, .(portfolio_return = sum(weights * return)), by = month]
+dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)),
+                                            portfolio_return)])
+charts.PerformanceSummary(dt_xts, main = "500 most liquid companies")
+```
+
+```{r}
+# Same analysis on universe of 100 most liquid companies
+sample_ = copy(dt_month)
+setorder(sample_, month, -momentum_12)
+sample_ = na.omit(sample_, cols = c("momentum_12", "return"))
+sample_ = sample_[liquid_200 == TRUE]
+sample_ = sample_[, first(.SD, 30), by = month]
+sample_[, weights := 1 / length(close), by = month]
+sample_[, all(weights == first(weights))] # test if all weights are the same
+dt_portfolio = sample_[, .(portfolio_return = sum(weights * return)), by = month]
+dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)),
+                                            portfolio_return)])
+charts.PerformanceSummary(dt_xts, main = "500 most liquid companies")
+```
+
+# Beta adjustment
+
+```{r}
+sample_ = copy(dt_month)
+sample_ = sample_[beta_rank_largest_95 == 0]
+sample_[, momentum_12 := momentum_12 / beta]
+setorder(sample_, month, -momentum_12)
+sample_ = na.omit(sample_, cols = c("momentum_12", "return"))
+sample_ = sample_[liquid_1000 == TRUE]
+sample_ = sample_[, first(.SD, 30), by = month]
+sample_[, weights := 1 / length(close), by = month]
+sample_[, all(weights == first(weights))] # test if all weights are the same
+dt_portfolio = sample_[, .(portfolio_return = sum(weights * return)), by = month]
+dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)),
+                                            portfolio_return)])
+charts.PerformanceSummary(dt_xts, main = "500 most liquid companies")
+```
+
+# Regimes
+
+```{r}
+sample_ = copy(dt_month)
+setorder(sample_, month, -momentum_12)
+sample_ = na.omit(sample_, cols = c("momentum_12", "return"))
+sample_ = sample_[liquid_1000 == TRUE]
+sample_ = sample_[, first(.SD, 30), by = month]
+sample_ = sample_[regime_spy_up_125 == 1]
+sample_[, weights := 1 / length(close), by = month]
+sample_[, all(weights == first(weights))] # test if all weights are the same
+dt_portfolio = sample_[, .(portfolio_return = sum(weights * return)), by = month]
+dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)),
+                                            portfolio_return)])
+charts.PerformanceSummary(dt_xts, main = "500 most liquid companies")
+```
+
+
+# Try different parameters
+
+```{r}
+# Define parameters
+coarse_universe = c("liquid_100", "liquid_200", "liquid_500", "liquid_1000",
+                    "all")
+beta_filtering = c("beta_rank_largest_90", "beta_rank_largest_95", 
+                   "beta_rank_largest_99", "all")
+beta_adjustment = c(TRUE, FALSE)
+momentun_vars = colnames(dt_month)[grepl("momentum", colnames(dt_month))]
+dvzw_thresholds = c(2:5, NA)
+discreteness_log = c(TRUE, FALSE)
+n = c(10, 20, 30, 50, 100)
+regimes = c("regime_spy_up_44", "regime_spy_up_66", 
+            "regime_spy_up_125", "regime_spy_up_252", "all")
+params = expand.grid(coarse_universe = coarse_universe,
+                     beta_filtering = beta_filtering,
+                     beta_adjustment = beta_adjustment,
+                     momentun_vars = momentun_vars,
+                     dvzw_thresholds = dvzw_thresholds,
+                     discreteness_log = discreteness_log,
+                     n = n, 
+                     regimes = regimes,
+                     stringsAsFactors = FALSE)
+setDT(params)
+# head(params)
+# nrow(params)
+```
+
+```{r}
+# Calculate momentum for all coarse universes
+cluster = parallel::makeCluster(12, type = "PSOCK")
+doParallel::registerDoParallel(cl = cluster)
+foreach::getDoParRegistered()
+foreach::getDoParWorkers()
+
+# TEST
+# params = params[1:100]
+
+start_time = Sys.time()
+res = foreach(i=1:nrow(params), 
+              .combine='rbind', 
+              .packages = c("data.table", "xts", "PerformanceAnalytics")) %dopar% {
+  # i = 4
+  # print(i)
+  # parameters
+  coarse_ = params$coarse_universe[i]
+  beta_filtering_ = params$beta_filtering[i]
+  momentum_ = params$momentun_vars[i]
+  dvzw_ = params$dvzw_thresholds[i]
+  discreteness_ = params$discreteness_log[i]
+  n_ = params$n[i]
+  regimes_ = params$regimes[i]
+  beta_adj_ = params$beta_adjustment[i]
+
+  dt_mom = na.omit(dt_month, cols = c(momentum_, "return"))
+  if (coarse_ != "all") {
+   dt_mom = dt_mom[get(coarse_) == TRUE] 
+  }
+  if (beta_filtering_ != "all") {
+   dt_mom = dt_mom[get(beta_filtering_) == 0]
+  }
+  if (regimes_ != "all") {
+   dt_mom = dt_mom[get(regimes_) == 1] 
+  }
+  if (!is.na(dvzw_)) {
+   dt_mom = dt_mom[get(paste0("dollar_volume_zscore_winsorized", gsub("momentum_", "", momentum_))) < dvzw_]
+  }
+  if (beta_adj_) {
+   dt_mom[, x := x / beta, env = list(x = momentum_)]
+  }
+  if (discreteness_) {
+   dt_mom = dt_mom[get(paste0("discreteness_", gsub("momentum_", "", momentum_))) < 0]
+  }
+  setorderv(dt_mom, c("month", momentum_), order = c(1, -1))
+  dt_mom = dt_mom[, first(.SD, n_), by = month]
+  dt_mom[, weights := 1 / length(close), by = month]
+  dt_mom[, all(weights == first(weights))] # test if all weights are the same
+  dt_portfolio = dt_mom[, .(portfolio_return = sum(weights * return)), by = month]
+  dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)),
+                                              portfolio_return)])
+  cbind(
+   annualized_return = Return.annualized(dt_xts),
+   sharpe_ratio = suppressMessages(SharpeRatio(dt_xts)[1, 1]),
+   max_dd = maxDrawdown(dt_xts)
+  )
+  # params[i, let(
+  #  annualized_return = Return.annualized(dt_xts),
+  #  sharpe_ratio = suppressMessages(SharpeRatio(dt_xts)[1, 1]),
+  #  max_dd = maxDrawdown(dt_xts)
+  # )]
+}
+end_time = Sys.time()
+print(end_time - start_time)
+# Time difference of 56.194 mins
+# Stop cluster
+parallel::stopCluster(cluster)
+
+# Merge results and parameters
+res = cbind.data.frame(params, res)
+setDT(res)
+
+# Order by sharpe ratio
+setorder(res, -sharpe_ratio)
+```
+
+```{r}
+# Save results
+fwrite(res, "F:/strategies/momentum/results.csv")
+
+head(res, 20)
+```
+
