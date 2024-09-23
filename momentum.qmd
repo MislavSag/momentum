@@ -4,11 +4,11 @@ format: html
 editor: visual
 ---
 
-
 ```{r}
 # rm(list = ls())
 library(data.table)
 library(PerformanceAnalytics)
+library(roll)
 library(ggplot2)
 library(patchwork)
 library(foreach)
@@ -26,7 +26,6 @@ dt[, month := data.table::yearmon(date)]
 # Sort
 setorder(dt, symbol, date)
 ```
-
 
 ```{r}
 # Upsample to monthly data
@@ -78,7 +77,8 @@ ggplot(ret_bins, aes(x = bin, y = mean_return)) +
   geom_bar(stat = "identity")
 ```
 
-### Media nreturns across bins 
+### Media nreturns across bins
+
 ```{r}
 ggplot(ret_bins, aes(x = bin, y = median_return)) + 
   geom_bar(stat = "identity")
@@ -125,16 +125,11 @@ ggplot(ret_bins, aes(x = bin, y = median_return)) +
   facet_wrap(~year, scales = "free_y")
 ```
 
-
 # Equity curves
 
 ## 12 month momentum on whole unvierse
 
-Assumptions:
-- We will keep 30 companies with highest momentum
-- We will rebalance monthly
-- We will equally weight all companies in the portfolio
-
+Assumptions: - We will keep 30 companies with highest momentum - We will rebalance monthly - We will equally weight all companies in the portfolio
 
 ```{r}
 # Keep 30 companies with highest momentum
@@ -154,9 +149,11 @@ charts.PerformanceSummary(dt_xts)
 ```{r}
 charts.PerformanceSummary(dt_xts["1998/2007"], main = "1998/2007")
 ```
+
 ```{r}
 charts.PerformanceSummary(dt_xts["2007/2018"], main = "2007/2018")
 ```
+
 ```{r}
 charts.PerformanceSummary(dt_xts["2018/"], main = "2018/")
 ```
@@ -245,6 +242,29 @@ dt_xts = as.xts.data.table(dt_portfolio[, .(as.Date(zoo::as.yearmon(month)),
 charts.PerformanceSummary(dt_xts, main = "500 most liquid companies")
 ```
 
+# Linear regression of returns on momentum indicators
+
+```{r}
+# Dates
+dates = seq.Date(as.Date("2023-10-01"), as.Date("2024-09-01"), by = "month")
+dates = data.table::yearmon(dates)
+
+# Rolling linear regression of returns on momenutm indicators
+data_ = dt_month[month %in% dates]
+data_[, month := round(month, 1)]
+# remove outliers
+data_ = data_[momentum_12 < quantile(momentum_12, 0.99, na.rm = TRUE)]
+data_ = data_[momentum_12 > quantile(momentum_12, 0.01, na.rm = TRUE)]
+data_ = data_[return < quantile(return, 0.99, na.rm = TRUE)]
+data_ = data_[return > quantile(return, 0.01, na.rm = TRUE)]
+
+# ggplot of linear regression of momentum on returns
+ggplot(data_, aes(x = momentum_12, y = return)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) + 
+  facet_wrap(~month, scales = "free_y")
+
+```
 
 # Try different parameters
 
@@ -356,6 +376,7 @@ setorder(res, -sharpe_ratio)
 # Save results
 fwrite(res, "F:/strategies/momentum/results.csv")
 
+# res = fread("F:/strategies/momentum/results.csv")
+
 head(res, 20)
 ```
-
