@@ -116,6 +116,13 @@ f_ = function(x, n) {
 }
 prices[, (mom_vars) := lapply(months_size, function(x) f_(close, x)), by = symbol]
 
+# Momentum ensambles
+weights_ = c(12, 6, 3, 1) / sum(c(12, 6, 3, 1))
+prices[, momentum_average := momentum_3 * weights_[1] +
+         momentum_6 * weights_[2] +
+         momentum_9 * weights_[3] +
+         momentum_12 * weights_[4]]
+
 # Dolar volume z-score
 dv_cols = paste0("dollar_volume_zscore_winsorized", months_size)
 f_ = function(x, y, z) RollingZscore(as.numeric(x * y), z, na_method = "ignore")

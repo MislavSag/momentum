@@ -59,6 +59,16 @@ dt_month = dt[, .(close = last(close),
 
 # Calculate next month return
 dt_month[, return := shift(close, -1, typ = "shift") / close - 1, by = symbol]
+
+# Define ETF symbols we want to potentially invest in
+symbols = c(
+  'bal', 'corn', 'wood', 'cow', 'cow', 'jjg', 'soyb', 'sgg', 'weat', 'soyb', 
+  'nib',  'jo', 'soyb', 'weat', 'uso', 'uhn', 'bno', 'uso', 'ung', 'uga', 
+  'gld', 'cper', 'pall', 'slv', 'fxa', 'fxb', 'fxe', 'fxa', 'fxf', 'fxc', 
+  'fxm', 'uup', 'qqq', 'ewj', 'spy', 'iwm', 'dia', 'vxx', 'eem', 'vwo', "tlt"
+)
+dt_month_etf = dt_month[symbol %in% symbols]
+
 ```
 
 # Bin graphs
@@ -67,7 +77,7 @@ dt_month[, return := shift(close, -1, typ = "shift") / close - 1, by = symbol]
 
 ```{r}
 # Show mean and meadian return for bins across date and momentum_12
-ret_bins = copy(dt_month)
+ret_bins = copy(dt_month_etf)
 ret_bins[, bin := cut(momentum_12, breaks = quantile(momentum_12, probs = seq(0, 1, 0.1), na.rm = TRUE), 
                       include.lowest = TRUE, labels = FALSE)]
 ret_bins = ret_bins[, .(mean_return = mean(return, na.rm = TRUE),
@@ -321,7 +331,7 @@ res = foreach(i=1:nrow(params),
   regimes_ = params$regimes[i]
   beta_adj_ = params$beta_adjustment[i]
 
-  dt_mom = na.omit(dt_month, cols = c(momentum_, "return"))
+  dt_mom = na.omit(dt_month_etf, cols = c(momentum_, "return"))
   if (coarse_ != "all") {
    dt_mom = dt_mom[get(coarse_) == TRUE] 
   }
@@ -380,3 +390,8 @@ fwrite(res, "F:/strategies/momentum/results.csv")
 
 head(res, 20)
 ```
+
+```{r}
+head(res)
+```
+
