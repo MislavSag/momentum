@@ -14,6 +14,11 @@ dt[, month := data.table::yearmon(date)]
 # Sort
 setorder(dt, symbol, date)
 
+
+
+
+
+
 # Upsample to monthly data
 dt_month = dt[, .(close = last(close),
                   date_first = first(date),

@@ -17,19 +17,28 @@ setCalendar("UnitedStates/NYSE")
 
 # DATA --------------------------------------------------------------------
 # Prices
+file.exists("C:/Users/Mislav/qc_snp/data/equity/usa/universes/etf/spy")
 prices = qc_daily_parquet(
-  file_path = "F:/lean/data/all_stocks_daily",
-  etfs = FALSE,
+  file_path = "C:/Users/Mislav/qc_snp/data/all_stocks_daily",
   min_obs = 510,
   duplicates = "fast",
   add_dv_rank = FALSE,
   add_day_of_month = FALSE,
-  market_symbol = "spy"
+  market_symbol = "spy",
+  etfs = FALSE
 )
 prices[, month := data.table::yearmon(date)]
 
 
 # PREDICTORS --------------------------------------------------------------
+# Assuming 'market_returns' from SPY or FF factors
+prices[, res_returns := residuals(lm(returns ~ spy_returns)), by = symbol]  # Use FF3 for better
+# Then compute mom_vars on res_returns instead of close
+prices[, (mom_vars) := lapply(months_size, function(x) f_(res_returns, x)), by = symbol]  # Adapt f_ for cumulative# Assuming 'market_returns' from SPY or FF factors
+prices[, res_returns := residuals(lm(returns ~ market_returns + smb + hml)), by = symbol]  # Use FF3 for better
+# Then compute mom_vars on res_returns instead of close
+prices[, (mom_vars) := lapply(months_size, function(x) f_(res_returns, x)), by = symbol]  # Adapt f_ for cumulative
+
 # Momentum predictors
 setorder(prices, symbol, date)
 months_size = 2:12
